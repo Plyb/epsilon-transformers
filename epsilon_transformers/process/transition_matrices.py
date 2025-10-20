@@ -11,7 +11,9 @@ def get_matrix_from_args(name: str, **kwargs):
         "rrxor": rrxor,
         "mess3": mess3,
         "days_of_week": days_of_week,
-        "zero_one_random": zero_one_random
+        "zero_one_random": zero_one_random,
+        "product": product,
+        "identity": identity,
     }
     
     if name in process_functions:
@@ -104,7 +106,7 @@ def days_of_week():
 
     return T
 
-def tom_quantum(alpha: float, beta: float):
+def tom_quantum(alpha: float, beta: float, **kwargs):
     """
     Creates a transition matrix for the Tom Quantum Process.
     """
@@ -203,7 +205,7 @@ def rrxor(pR1=0.5, pR2=0.5):
 
     return T
 
-def mess3(x=0.15, a=0.6):
+def mess3(x=0.15, a=0.6, **kwargs):
     """
     Creates a transition matrix for the Mess3 Process.
     """
@@ -221,3 +223,9 @@ def mess3(x=0.15, a=0.6):
     T[2, :, :] = [[by, bx, ax], [bx, by, ax], [bx, bx, ay]]
 
     return T
+
+def product(alpha: float, beta: float, x=0.15, a=0.6):
+    return np.kron(mess3(x, a), tom_quantum(alpha, beta))
+
+def identity():
+    return np.ones((1, 1, 1))

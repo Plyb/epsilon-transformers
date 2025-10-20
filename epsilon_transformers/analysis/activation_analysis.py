@@ -16,7 +16,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import json
-from epsilon_transformers.analysis.load_data import S3ModelLoader
+from epsilon_transformers.analysis.load_data import LocalModelLoader, S3ModelLoader
 import io
 import os
 from multiprocessing import Pool
@@ -109,7 +109,10 @@ def get_beliefs_for_nn_inputs(
     if probs_dict is not None:
         X_probs = torch.zeros(batch, n_ctx, dtype=torch.float32, device=nn_inputs.device)
     
+    print(f'batches: {batch}')
     for i in range(batch):
+        if i % (batch // 100) == 0:
+            print(i)
         for j in range(n_ctx):
             input_substring = tuple(nn_inputs[i, :j+1].cpu().numpy())
             full_string = tuple(nn_inputs[i].cpu().numpy())
@@ -196,7 +199,7 @@ def save_process_data(data: dict, process_config: dict, loader: S3ModelLoader):
         Body=buf.getvalue()
     )
 
-def load_process_data(process_config: dict, loader: S3ModelLoader) -> dict:
+def load_process_data(process_config: dict, loader: LocalModelLoader) -> dict:
     """Load process data from S3 if it exists."""
     path = get_process_data_path(process_config, loader)
     
@@ -224,7 +227,7 @@ def load_process_data(process_config: dict, loader: S3ModelLoader) -> dict:
     except loader.s3_client.exceptions.NoSuchKey:
         return None
 
-def prepare_msp_data(config, model_config, loader: S3ModelLoader = None):
+def prepare_msp_data(config, model_config, loader: LocalModelLoader = None):
     """Prepare MSP data with caching."""
     if loader is not None:
         # Try to load cached data
@@ -238,12 +241,15 @@ def prepare_msp_data(config, model_config, loader: S3ModelLoader = None):
     print("Computing MSP data...")
     # If we get here, we need to compute the data
     msp = get_msp(config)
+    print("got msp")
     tree_paths = msp.paths
     tree_beliefs = msp.belief_states
     tree_unnormalized_beliefs = msp.unnorm_belief_states
     path_probs = msp.path_probs
     msp_beliefs = [tuple(round(b, 5) for b in belief.squeeze()) for belief in tree_beliefs]
+    print('got msp beliefs')
     msp_belief_index = {tuple(b): i for i, b in enumerate(set(msp_beliefs))}
+    print('got msp belief index')
     
     # check if n_ctx is in the model_config
     if 'n_ctx' not in model_config:
@@ -255,7 +261,8 @@ def prepare_msp_data(config, model_config, loader: S3ModelLoader = None):
     nn_inputs = torch.tensor(nn_paths, dtype=torch.int).clone().detach().to("cpu")
 
     probs_dict = {tuple(path): prob for path, prob in zip(tree_paths, path_probs)}
-    
+   
+    print('getting beliefs for nn inputs')
     nn_beliefs, nn_belief_indices, nn_probs, nn_unnormalized_beliefs = get_beliefs_for_nn_inputs(
         nn_inputs,
         msp_belief_index,
@@ -264,6 +271,7 @@ def prepare_msp_data(config, model_config, loader: S3ModelLoader = None):
         tree_unnormalized_beliefs,
         probs_dict
     )
+    print('got for nn inputs')
     
     if loader is not None:
         # Save the computed data

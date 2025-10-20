@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 from typing import Tuple, Optional, Dict, List, Iterator
 from abc import ABC
@@ -128,6 +129,9 @@ class GHMM(ABC):
         while stack:
             current_node, state_prob_vector, current_path, current_depth = stack.pop()
             #print(f"Current depth: {current_depth}")
+            if current_depth < 3:
+                print(f'stack size: {len(stack)} @ depth {current_depth}')
+                sys.stdout.flush()
             if current_depth < depth:
                 emission_probs = _compute_emission_probabilities(self.transition_matrices, state_prob_vector, self.right_eigenvector)
                 for emission in range(self.vocab_len):
@@ -179,7 +183,7 @@ def _compute_emission_probabilities(
     """
     T = transition_matrices
     eta = state_prob_vector  # eta has shape (1, num_states)
-    return ((eta @ T @ ones) / (eta @ ones)).squeeze() # shape (vocab_len)
+    return ((eta @ T @ ones) / (eta @ ones)).squeeze((1, 2)) # shape (vocab_len)
 
 def _compute_next_distribution(
     epsilon_machine: Float[np.ndarray, "vocab_len num_states num_states"],

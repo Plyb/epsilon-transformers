@@ -1,3 +1,4 @@
+import sys
 from typing import Tuple
 import torch
 from epsilon_transformers.process.GHMM import GHMM, TransitionMatrixGHMM
@@ -28,7 +29,9 @@ def generate_all_seqs(process: GHMM, seq_len: int, bos: bool = True) -> Tuple[to
     bos_token = process.vocab_len if bos else None
 
     # Generate Mixed State Presentation
+    print('creating msp'); sys.stdout.flush()
     msp = process.derive_mixed_state_tree(depth=msp_depth)
+    print ('creating paths'); sys.stdout.flush()
     paths, probs = msp.get_paths_and_probs(depth=final_seq_len)
     myopic_entropy = msp.myopic_entropy
 

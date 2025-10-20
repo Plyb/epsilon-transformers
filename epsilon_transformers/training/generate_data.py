@@ -6,8 +6,8 @@ import numpy as np
 from epsilon_transformers.training.dataloader import get_dataloader_and_loss_lower_bound_from_process
 import torch
 
-def load_process_data(config, process_dir):
-    process_config = config['process_config']
+def load_process_data(config, process_dir, process_config_override = None):
+    process_config = process_config_override if process_config_override else config['process_config']
     n_ctx = config['model_config']['n_ctx']
     bos = config['train_config']['bos']
     
@@ -15,6 +15,7 @@ def load_process_data(config, process_dir):
     data_dir = os.path.join(process_dir, process_string)
     
     if not os.path.exists(data_dir):
+        print(f'{data_dir} doesnt exist')
         return None
     
     with open(os.path.join(data_dir, 'metadata.json'), 'r') as f:
@@ -36,8 +37,9 @@ def load_config(config_path):
         return yaml.safe_load(f)
     
 def get_process_string(process_config, n_ctx, bos):
+    process_name = process_config['name']
     process_string = "_".join(f"{key}_{value}" for key, value in process_config.items() if key != 'name')
-    return f"{process_config['name']}_ctx{n_ctx}_bos{bos}_{process_string}"
+    return f"{process_name}_ctx{n_ctx}_bos{bos}_{process_string}"
 
 def compare_metadata(metadata1, metadata2):
     return (metadata1['process_config'] == metadata2['process_config'] and

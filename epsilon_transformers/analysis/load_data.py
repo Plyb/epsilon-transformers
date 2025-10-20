@@ -11,6 +11,127 @@ from epsilon_transformers.training.networks import create_RNN
 from transformer_lens import HookedTransformer, HookedTransformerConfig
 from typing import Optional
 from io import BytesIO
+from typing import List
+
+class LocalModelLoader:
+    def list_runs_in_sweep(self, sweep: str) -> List[str]:
+        return [item for item in os.listdir(f'./results/{sweep}') if 'run_' in item]
+
+    def list_checkpoints(self, sweep: str, run_id: str) -> List[str]:
+        return [item for item in os.listdir(f'./results/{sweep}/{run_id}') if '.pt' in item]
+
+    def load_checkpoint(self, sweep_id: str, run_id: str, ckpt_id: str, device: str = 'cpu'):
+        """Load a specific transformer checkpoint from the results directory.
+        
+        Args:
+            sweep_id (str): ID of the sweep
+            run_id (str): ID of the run
+            checkpoint_idx (int): Index of checkpoint to load (-1 for latest)
+            device (str): Device to load model onto ('cpu' or 'cuda')
+            
+        Returns:
+            Tuple[HookedTransformer, dict]: The loaded model and its run configuration
+        """
+        # Get list of checkpoints and select the requested one
+        checkpoints = self.list_checkpoints(sweep_id, run_id)
+        if not checkpoints:
+            raise FileNotFoundError(f"No checkpoints found for run {run_id}")
+                
+        # Download checkpoint file
+        checkpoint_path =  f'./results/{sweep_id}/{run_id}/{ckpt_id}'
+        
+        # Load configurations
+        configs = self.load_run_configs(sweep_id, run_id)
+        if not configs['model_config']:
+            raise ValueError("Could not load model configuration")
+        
+        # Prepare model config
+        model_config = configs['model_config']
+        model_config['dtype'] = getattr(torch, model_config['dtype'].split('.')[-1])
+        model_config['device'] = device
+        
+        # Create and load model
+        model_config = HookedTransformerConfig(**model_config)
+        model = HookedTransformer(model_config)
+        model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
+        
+        return model, configs['run_config']
+
+    def load_run_configs(self, sweep_id, run_id):
+        """Load all configuration files for a specific run"""
+        configs = {}
+        
+        def read_file(path):
+            with open(path, 'r') as file:
+                return file.read()
+
+        base_path = f"./results/{sweep_id}/{run_id}"
+        
+        # Load run_config.yaml
+        try:
+            yaml_content = read_file(f"{base_path}/run_config.yaml")
+            configs['run_config'] = yaml.safe_load(yaml_content)
+        except Exception as e:
+            print(f"Error loading run_config.yaml: {e}")
+            configs['run_config'] = None
+
+        # Try loading hooked_model_config.json first, then model_config.json as fallback
+        try:
+            try:
+                json_content = read_file(f"{base_path}/hooked_model_config.json")
+                configs['model_config'] = json.loads(json_content)
+            except:
+                json_content = read_file(f"{base_path}/model_config.json")
+                configs['model_config'] = json.loads(json_content)
+        except Exception as e:
+            print(f"Error loading model config files: {e}")
+            configs['model_config'] = None
+
+        # Load log.json
+        try:
+            json_content = read_file(f"{base_path}/log.json")
+            configs['log'] = json.loads(json_content)
+        except Exception as e:
+            print(f"Error loading log.json: {e}")
+            configs['log'] = None
+
+        # Load CSV files as pandas DataFrames
+        try:
+            csv_content = read_file(f"{base_path}/log.csv")
+            configs['log_csv'] = pd.read_csv(StringIO(csv_content))
+        except Exception as e:
+            print(f"Error loading log.csv: {e}")
+            configs['log_csv'] = None
+
+        try:
+            csv_content = read_file(f"{base_path}/loss.csv")
+            configs['loss_csv'] = pd.read_csv(StringIO(csv_content))
+        except Exception as e:
+            print(f"Error loading loss.csv: {e}")
+            configs['loss_csv'] = None
+
+        return configs
+
+    def load_loss_from_run(self, sweep_id: str, run_id: str) -> Optional[pd.DataFrame]:
+        """Load loss data for a specific run within a sweep.
+        
+        Args:
+            sweep_id (str): ID of the sweep
+            run_id (str): ID of the run
+            
+        Returns:
+            Optional[pd.DataFrame]: DataFrame containing loss data, or None if not found
+        """
+        try:
+            configs = self.load_run_configs(sweep_id, run_id)
+            return configs['loss_csv']
+        except Exception as e:
+            print(f"Error loading loss data: {e}")
+            return None
+
+
+
+
 
 class S3ModelLoader:
     def __init__(self, use_company_credentials=False):
