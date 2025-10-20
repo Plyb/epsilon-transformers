@@ -1,4 +1,6 @@
 import argparse
+
+from torch.utils.data import DataLoader, IterableDataset
 from epsilon_transformers.training.logger import StructuredLogger
 from epsilon_transformers.process.GHMM import TransitionMatrixGHMM
 from epsilon_transformers.process.transition_matrices import get_matrix_from_args
@@ -7,6 +9,7 @@ import torch
 import numpy as np
 import copy
 from tqdm import tqdm
+import sys
 
 from transformer_lens import HookedTransformer, HookedTransformerConfig
 import json
@@ -66,7 +69,7 @@ def train_epoch_all(model, optimizer, dataset, scheduler=None):
     loss = F.cross_entropy(logits_flat, targets_flat, reduction='none')
     loss = loss.reshape(batch_size, seq_length)
     loss = loss * probs.unsqueeze(1)
-    loss = loss.sum(dim=0)
+    loss = loss.sum(dim=0) / probs.sum()
     loss.mean().backward()
     optimizer.step()
     #if scheduler:
@@ -85,7 +88,7 @@ def validate_epoch_all(model, dataset, scheduler=None):
         loss = F.cross_entropy(logits_flat, targets_flat, reduction='none')
         loss = loss.reshape(batch_size, seq_length)
         # multiply the loss (batch_size, seq_length) by the probabilities (batch_size) to get the weighted loss (batch_size, seq_length)
-        loss = loss * probs.unsqueeze(1)
+        loss = loss * probs.unsqueeze(1) / probs.sum()
         if scheduler:
             scheduler.step(loss.mean())
             #scheduler.step()
@@ -128,7 +131,35 @@ def get_device(args):
 def load_config(config_path):
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
-    
+
+class ProductDataset(IterableDataset):
+    def __init__(self, dataset_0, dataset_1, dataset_1_vocab_size):
+        self.dataset_0 = dataset_0
+        self.dataset_1 = dataset_1
+        self.tokens_per_epoch = self.dataset_0.tokens_per_epoch
+        self.dataset_1_vocab_size = dataset_1_vocab_size
+
+    def __iter__(self):
+        for (X_0, Y_0), (X_1, Y_1) in zip(self.dataset_0, self.dataset_1):
+            yield self._product(X_0, Y_0, X_1, Y_1)
+
+    def validation_data(self):
+        X_0, Y_0, probs_0 = self.dataset_0.validation_data()
+        sample_inds = torch.multinomial(self.dataset_1.probs, X_0.shape[0], replacement=True)
+        sample_1 = self.dataset_1.transformer_inputs[sample_inds]
+        X_1 = sample_1[:, :-1]
+        Y_1 = sample_1[:, 1:]
+        probs_1 = self.dataset_1.probs[sample_inds]
+
+        X_prod, Y_prod = self._product(X_0, Y_0, X_1, Y_1)
+        return X_prod, Y_prod, probs_0 * probs_1
+
+    def _product(self, X_0, Y_0, X_1, Y_1):
+        X_prod = X_0 * self.dataset_1_vocab_size + X_1
+        Y_prod = Y_0 * self.dataset_1_vocab_size + Y_1
+        return X_prod, Y_prod
+
+
 def main():
     parser = argparse.ArgumentParser(description='Train Transformer with specific hyperparameters.')
     parser.add_argument('--config', type=str, required=True, help='Path to run configuration file')
@@ -159,34 +190,43 @@ def main():
     # Parse process parameters
 
     # Try to load pre-generated data
-    process_data = load_process_data(config, config['global_config']['process_dir'])
-    print("process_data:", process_data)
-    
-    if process_data is not None:
-        # Data was pre-generated, load it
-        dataloader, d_vocab = get_dataloader_from_data(
-            process_data['transformer_inputs'],
-            process_data['probs'],
-            config['train_config']['batches_per_epoch'],
-            config['train_config']['batch_size'],
-            device
-        )
-        loss_lower_bound = torch.from_numpy(process_data['loss_lower_bound']).to(device)
-    else:
-        # Data wasn't pre-generated, generate it now
-        dataloader, loss_lower_bound, d_vocab = get_dataloader_and_loss_lower_bound_from_process(
-            process_params=config['process_config'],
-            n_ctx=config['model_config']['n_ctx'],
-            bos=config['train_config']['bos'],
-            batches_per_epoch=config['train_config']['batches_per_epoch'],
-            batch_size=config['train_config']['batch_size'],
-            device=device,
-        )
+    # process_data_0 = load_process_data(config, config['global_config']['process_dir'], process_config_override={'name': 'mess3', 'x': config['process_config']['x'], 'a': config['process_config']['a']})
+    process_data_0 = load_process_data(config, config['global_config']['process_dir'], process_config_override={'name': 'tom_quantum', 'alpha': config['process_config']['alpha'], 'beta': config['process_config']['beta']})
+    process_data_1 = load_process_data(config, config['global_config']['process_dir'], process_config_override={'name': 'identity'})
 
-    np.savetxt('loss_lower_bound.txt', loss_lower_bound.cpu().numpy(), fmt='%f', delimiter=',', header='loss_lower_bound')
+    print("process_data:", process_data_0, process_data_1)
+
+    if process_data_0 is None or process_data_1 is None:
+        raise Exception('preload mess3 and tom_quantum')
+    
+    # Data was pre-generated, load it
+    dataloader_0, d_vocab_0 = get_dataloader_from_data(
+        process_data_0['transformer_inputs'],
+        process_data_0['probs'],
+        config['train_config']['batches_per_epoch'],
+        config['train_config']['batch_size'],
+        device
+    )
+    loss_lower_bound_0 = torch.from_numpy(process_data_0['loss_lower_bound']).to(device)
+    print('dataloader created')
+    sys.stdout.flush()
+    dataloader_1, d_vocab_1 = get_dataloader_from_data(
+        process_data_1['transformer_inputs'],
+        process_data_1['probs'],
+        config['train_config']['batches_per_epoch'],
+        config['train_config']['batch_size'],
+        device
+    )
+    loss_lower_bound_tom = torch.from_numpy(process_data_1['loss_lower_bound']).to(device)
+    print('dataloader created')
+    sys.stdout.flush()
+
+
+    np.savetxt('loss_lower_bound_mess3.txt', loss_lower_bound_0.cpu().numpy(), fmt='%f', delimiter=',', header='loss_lower_bound')
+    np.savetxt('loss_lower_bound_tom.txt', loss_lower_bound_tom.cpu().numpy(), fmt='%f', delimiter=',', header='loss_lower_bound')
 
     config['model_config']['device'] = config['global_config']['device']
-    config['model_config']['d_vocab'] = d_vocab
+    config['model_config']['d_vocab'] = d_vocab_0 * d_vocab_1
     config['model_config']['dtype'] = getattr(torch, config['model_config']['dtype'])
 
     hooked_model_config = HookedTransformerConfig(**config['model_config'])
@@ -218,6 +258,10 @@ def main():
     
     num_tokens_seen = 0
     # do validation before starting the epoch loop
+
+    dataloader = ProductDataset(dataloader_0, dataloader_1, d_vocab_1)
+    loss_lower_bound = loss_lower_bound_0 + loss_lower_bound_tom
+    print(f'llbs: {loss_lower_bound} {loss_lower_bound_0} {loss_lower_bound_tom}')
 
     val_loss_per_ctx_pos = validate_epoch_all(model, dataloader)
     val_loss_per_ctx_pos = val_loss_per_ctx_pos / loss_lower_bound

@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 from typing import Tuple, Optional, Dict, List, Iterator
 from abc import ABC
@@ -179,7 +180,7 @@ def _compute_emission_probabilities(
     """
     T = transition_matrices
     eta = state_prob_vector  # eta has shape (1, num_states)
-    return ((eta @ T @ ones) / (eta @ ones)).squeeze() # shape (vocab_len)
+    return ((eta @ T @ ones) / (eta @ ones)).squeeze((1, 2)) # shape (vocab_len)
 
 def _compute_next_distribution(
     epsilon_machine: Float[np.ndarray, "vocab_len num_states num_states"],

@@ -12,7 +12,7 @@ global_config:
 train_config:
   batches_per_epoch: 200
   bos: false
-  n_epochs: 200
+  n_epochs: 20000
 
 model_config:
   n_ctx: 6
@@ -36,9 +36,4 @@ sweep_config:
     n_heads:
       - 4
   process_config:
-    - name: "tom_quantum"
-      alpha: 1.0
-      beta: 7.14142842854285
-    - name: "mess3"
-      x: 0.05
-      a: 0.85
+    - name: "identity"

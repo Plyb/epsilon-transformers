@@ -16,7 +16,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import json
-from epsilon_transformers.analysis.load_data import S3ModelLoader
+from epsilon_transformers.analysis.load_data import LocalModelLoader, S3ModelLoader
 import io
 import os
 from multiprocessing import Pool
@@ -196,7 +196,7 @@ def save_process_data(data: dict, process_config: dict, loader: S3ModelLoader):
         Body=buf.getvalue()
     )
 
-def load_process_data(process_config: dict, loader: S3ModelLoader) -> dict:
+def load_process_data(process_config: dict, loader: LocalModelLoader) -> dict:
     """Load process data from S3 if it exists."""
     path = get_process_data_path(process_config, loader)
     
@@ -224,7 +224,7 @@ def load_process_data(process_config: dict, loader: S3ModelLoader) -> dict:
     except loader.s3_client.exceptions.NoSuchKey:
         return None
 
-def prepare_msp_data(config, model_config, loader: S3ModelLoader = None):
+def prepare_msp_data(config, model_config, loader: LocalModelLoader = None):
     """Prepare MSP data with caching."""
     if loader is not None:
         # Try to load cached data
@@ -255,7 +255,7 @@ def prepare_msp_data(config, model_config, loader: S3ModelLoader = None):
     nn_inputs = torch.tensor(nn_paths, dtype=torch.int).clone().detach().to("cpu")
 
     probs_dict = {tuple(path): prob for path, prob in zip(tree_paths, path_probs)}
-    
+   
     nn_beliefs, nn_belief_indices, nn_probs, nn_unnormalized_beliefs = get_beliefs_for_nn_inputs(
         nn_inputs,
         msp_belief_index,

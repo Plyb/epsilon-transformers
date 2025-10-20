@@ -1710,6 +1710,95 @@ def run_activation_to_beliefs_regression_kf(
     
     return backward_compatible_results
 
+def extract_belief_corresponding_subspace(activations, beliefs, probs, rcond=1e-10):
+    """
+    Find the subspace of activation space that corresponds to the 
+    effective (non-degenerate) dimensions of belief space.
+    
+    If beliefs lie in a lower-dimensional subspace, we first identify that
+    subspace, then find what in activation space maps to it.
+    """
+    device = activations.device
+    B = beliefs.shape[1]
+    D = activations.shape[1]
+    
+    # Step 1: Find the effective dimensionality of belief space
+    # Center the beliefs
+    belief_mean = (beliefs * probs.unsqueeze(1) / probs.sum()).sum(dim=0)
+    beliefs_centered = beliefs - belief_mean
+    
+    # Weighted covariance of beliefs
+    sqrt_probs = torch.sqrt(probs / probs.sum()).unsqueeze(1)
+    beliefs_weighted = beliefs_centered * sqrt_probs
+    
+    # SVD to find principal components of belief space
+    U_belief, S_belief, Vh_belief = torch.linalg.svd(beliefs_weighted, full_matrices=False)
+    
+    # Determine effective rank of belief space
+    belief_threshold = 1e-5 * S_belief[0]  # Adjust threshold as needed
+    effective_B = (S_belief > belief_threshold).sum().item()
+    
+    print(f"Belief space: nominal dimension {B}, effective dimension {effective_B}")
+    print(f"Belief singular values: {S_belief.tolist()}")
+    
+    # The effective belief subspace basis (columns of Vh_belief^T)
+    belief_basis = Vh_belief[:effective_B, :].T  # (B, effective_B)
+    
+    # Step 2: Perform regression in activation space
+    probs_norm = probs / probs.sum()
+    ones = torch.ones((activations.shape[0], 1), device=device)
+    X_bias = torch.cat([ones, activations], dim=1)
+    
+    sqrt_weights = torch.sqrt(probs_norm).unsqueeze(1)
+    X_weighted = X_bias * sqrt_weights
+    Y_weighted = beliefs * sqrt_weights
+    
+    # Compute regression matrix β: (D+1) → B
+    U, S, Vh = torch.linalg.svd(X_weighted, full_matrices=False)
+    threshold = rcond * S[0]
+    S_pinv = torch.zeros_like(S)
+    above_threshold = S > threshold
+    S_pinv[above_threshold] = 1.0 / S[above_threshold]
+    
+    pinv_X = Vh.T @ torch.diag(S_pinv) @ U.T
+    beta = pinv_X @ Y_weighted  # Shape: (D+1, B)
+    beta = beta.T  # Shape: (B, D+1)
+    
+    beta_no_bias = beta[:, 1:]  # (B, D)
+    
+    # Step 3: Project β onto the effective belief subspace
+    # We want: activation space → effective belief subspace
+    # This is: belief_basis^T @ beta_no_bias
+    # Which maps: R^D → R^effective_B
+    beta_effective = belief_basis.T @ beta_no_bias  # (effective_B, D)
+    
+    print(f"β_effective shape: {beta_effective.shape}")
+    
+    # Step 4: Find the activation subspace that maps to effective belief space
+    U_beta, S_beta, Vh_beta = torch.linalg.svd(beta_effective, full_matrices=False)
+    
+    print(f"β_effective singular values: {S_beta.tolist()}")
+    
+    # The activation subspace is spanned by the first effective_B rows of Vh_beta
+    activation_rank = min(effective_B, (S_beta > 1e-10 * S_beta[0]).sum().item())
+    
+    basis = Vh_beta[:activation_rank, :].T  # (D, activation_rank)
+    projection_matrix = basis @ basis.T  # (D, D)
+    
+    explained_variance = (S_beta[:activation_rank] ** 2).sum() / (S_beta ** 2).sum()
+    
+    return {
+        'basis': basis,  # (D, activation_rank)
+        'rank': activation_rank,
+        'effective_belief_dim': effective_B,
+        'projection_matrix': projection_matrix,
+        'beta': beta,  # (B, D+1) - full regression
+        'beta_effective': beta_effective,  # (effective_B, D) - to effective belief space
+        'belief_basis': belief_basis,  # (B, effective_B) - basis of belief subspace
+        'belief_singular_values': S_belief,
+        'activation_singular_values': S_beta,
+        'explained_variance': explained_variance,
+    }
 
 def _run_single_fold_regression(
     activations,
@@ -1867,7 +1956,8 @@ def _train_final_model(activations, beliefs, probs, best_rcond, sklearn_fallback
     # Prepare for prediction
     ones = torch.ones((N, 1), device=device)
     X_bias = torch.cat([ones, X], dim=1)
-    
+   
+    basis = None
     # Check which method to use
     if best_rcond == sklearn_fallback_key:
         print("Training final model with sklearn (selected by CV)")
@@ -1912,6 +2002,26 @@ def _train_final_model(activations, beliefs, probs, best_rcond, sklearn_fallback
                 model_type = "svd"
             else:
                 raise ValueError(f"Failed to compute pseudoinverse for rcond={best_rcond}")
+
+            result = extract_belief_corresponding_subspace(activations, beliefs, probs, rcond=best_rcond)
+            basis = result['basis']  # (D, B)
+            beta_effective = result['beta_effective']  # (B, D)
+
+            # Project an activation onto the subspace
+            x = activations[0]  # (D,)
+            x_projected = result['projection_matrix'] @ x
+
+            # These should give the same belief prediction:
+            belief_pred_1 = beta_effective @ x
+            belief_pred_2 = beta_effective @ x_projected
+
+
+            centroid = Y.mean(dim=0, keepdim=True)
+            centered = Y - centroid
+            cov_matrix = (centered.T @ centered) / (centered.shape[0] - 1)
+            print(f'testing projection: {torch.allclose(belief_pred_1, belief_pred_2)}')  # Should be True!
+            print(f'basis shape: {basis.shape}, belief shape: {Y.shape}, basis rank: {torch.linalg.svdvals(basis)}, belief rank: {torch.linalg.svdvals(cov_matrix)}')
+
                 
         except Exception as e:
             print(f"Error training final SVD model: {e}")
@@ -1983,7 +2093,8 @@ def _train_final_model(activations, beliefs, probs, best_rcond, sklearn_fallback
         "predictions": Y_pred.cpu().detach().numpy(),
         "true_values": Y.cpu().detach().numpy(),
         "weights": probs.cpu().detach().numpy(), # Return original probs used for weighting metrics
-        "model_type": model_type
+        "model_type": model_type,
+        "basis": None if basis is None else basis.cpu().detach().numpy(),
     }
 
 
