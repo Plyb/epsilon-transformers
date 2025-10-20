@@ -264,7 +264,6 @@ def main():
     print(f'llbs: {loss_lower_bound} {loss_lower_bound_0} {loss_lower_bound_tom}')
 
     val_loss_per_ctx_pos = validate_epoch_all(model, dataloader)
-    print(val_loss_per_ctx_pos.mean().item());sys.stdout.flush()
     val_loss_per_ctx_pos = val_loss_per_ctx_pos / loss_lower_bound
     mean_val_loss = val_loss_per_ctx_pos.mean().item()
     logger.log_epoch(-1, num_tokens_seen, 

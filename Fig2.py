@@ -649,15 +649,6 @@ if __name__ == "__main__":
         #  'models': [("Transformer", ("20251020101357", 0))]},
         {'name': 'Mess3', 'gt_run': ("20251020122308", 0), # Bloch * Id
          'models': [("Transformer", ("20251020122308", 0))]},
-
-
-
-
-
-        # {'name': 'TomQA', 'gt_run': ("20241205175736", 17), 
-        #  'models': [("Transformer", ("20241205175736", 17)), ("LSTM", ("20241121152808", 49))]},
-        # {'name': 'Moon Process', 'gt_run': ("20250421221507", 0), 
-        #  'models': [("Transformer", ("20250421221507", 0)), ("LSTM", ("20241121152808", 48))]},
     ]
     
     # Set up data directory based on source with selective downloading

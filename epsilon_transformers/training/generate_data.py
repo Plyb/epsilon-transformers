@@ -37,9 +37,8 @@ def load_config(config_path):
         return yaml.safe_load(f)
     
 def get_process_string(process_config, n_ctx, bos):
-    process_name = process_config['name']
     process_string = "_".join(f"{key}_{value}" for key, value in process_config.items() if key != 'name')
-    return f"{process_name}_ctx{n_ctx}_bos{bos}_{process_string}"
+    return f"{process_config['name']}_ctx{n_ctx}_bos{bos}_{process_string}"
 
 def compare_metadata(metadata1, metadata2):
     return (metadata1['process_config'] == metadata2['process_config'] and

@@ -106,7 +106,7 @@ def days_of_week():
 
     return T
 
-def tom_quantum(alpha: float, beta: float, **kwargs):
+def tom_quantum(alpha: float, beta: float):
     """
     Creates a transition matrix for the Tom Quantum Process.
     """
@@ -205,7 +205,7 @@ def rrxor(pR1=0.5, pR2=0.5):
 
     return T
 
-def mess3(x=0.15, a=0.6, **kwargs):
+def mess3(x=0.15, a=0.6):
     """
     Creates a transition matrix for the Mess3 Process.
     """

@@ -109,10 +109,7 @@ def get_beliefs_for_nn_inputs(
     if probs_dict is not None:
         X_probs = torch.zeros(batch, n_ctx, dtype=torch.float32, device=nn_inputs.device)
     
-    print(f'batches: {batch}')
     for i in range(batch):
-        if i % (batch // 100) == 0:
-            print(i)
         for j in range(n_ctx):
             input_substring = tuple(nn_inputs[i, :j+1].cpu().numpy())
             full_string = tuple(nn_inputs[i].cpu().numpy())
@@ -241,15 +238,12 @@ def prepare_msp_data(config, model_config, loader: LocalModelLoader = None):
     print("Computing MSP data...")
     # If we get here, we need to compute the data
     msp = get_msp(config)
-    print("got msp")
     tree_paths = msp.paths
     tree_beliefs = msp.belief_states
     tree_unnormalized_beliefs = msp.unnorm_belief_states
     path_probs = msp.path_probs
     msp_beliefs = [tuple(round(b, 5) for b in belief.squeeze()) for belief in tree_beliefs]
-    print('got msp beliefs')
     msp_belief_index = {tuple(b): i for i, b in enumerate(set(msp_beliefs))}
-    print('got msp belief index')
     
     # check if n_ctx is in the model_config
     if 'n_ctx' not in model_config:
@@ -262,7 +256,6 @@ def prepare_msp_data(config, model_config, loader: LocalModelLoader = None):
 
     probs_dict = {tuple(path): prob for path, prob in zip(tree_paths, path_probs)}
    
-    print('getting beliefs for nn inputs')
     nn_beliefs, nn_belief_indices, nn_probs, nn_unnormalized_beliefs = get_beliefs_for_nn_inputs(
         nn_inputs,
         msp_belief_index,
@@ -271,7 +264,6 @@ def prepare_msp_data(config, model_config, loader: LocalModelLoader = None):
         tree_unnormalized_beliefs,
         probs_dict
     )
-    print('got for nn inputs')
     
     if loader is not None:
         # Save the computed data

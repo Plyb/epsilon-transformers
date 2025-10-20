@@ -129,9 +129,6 @@ class GHMM(ABC):
         while stack:
             current_node, state_prob_vector, current_path, current_depth = stack.pop()
             #print(f"Current depth: {current_depth}")
-            if current_depth < 3:
-                print(f'stack size: {len(stack)} @ depth {current_depth}')
-                sys.stdout.flush()
             if current_depth < depth:
                 emission_probs = _compute_emission_probabilities(self.transition_matrices, state_prob_vector, self.right_eigenvector)
                 for emission in range(self.vocab_len):
